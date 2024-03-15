@@ -27,7 +27,7 @@ func New(replicas int, hash Hash) *Map {
 		hashMap: make(map[int]string),
 	}
 	if hash == nil {
-		hash = crc32.ChecksumIEEE
+		m.hash = crc32.ChecksumIEEE
 	}
 	return m
 }
@@ -36,7 +36,7 @@ func New(replicas int, hash Hash) *Map {
 func (m *Map) Add(keys ...string) {
 	for _, key := range keys {
 		// for 1 real node, make m.replicas replicas named "strconv.Itoa(i) + key"
-		for i := range m.replicas {
+		for i := 0; i < m.replicas; i++ {
 			// caculate the hase value of "strconv.Itoa(i) + key"
 			hash := int(m.hash([]byte(strconv.Itoa(i) + key)))
 			// add to the hash ring
