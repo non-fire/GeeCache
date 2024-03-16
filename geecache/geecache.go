@@ -2,6 +2,7 @@ package geecache
 
 import (
 	"fmt"
+	"geecache/singleflight"
 	"log"
 	"sync"
 )
@@ -34,6 +35,7 @@ type Group struct{
 	getter Getter // the callback func when cache miss
 	mainCache cache // concurrent cache in cache.go
 	peers PeerPicker // inject HttpPool(implement PeerPicker) into Group
+	loader *singleflight.Group
 }
 
 var (
@@ -52,6 +54,7 @@ func NewGroup(name string, cacheBytes int64, getter Getter) *Group {
 		name: name,
 		getter: getter,
 		mainCache: cache{cacheBytes: cacheBytes},
+		loader: &singleflight.Group{},
 	}
 	groups[name] = g // set mapping
 	return g
@@ -85,17 +88,23 @@ func (g *Group) Get(key string) (ByteView, error) {
 }
 
 func (g *Group) load(key string) (value ByteView, err error) {
-	if g.peers != nil {
-		// not self node
-		if peerGetter, ok := g.peers.PickPeer(key); ok {
-			if value, err = g.getFromPeer(key, peerGetter); err == nil {
-				return value, nil
+	viewi, err :=g.loader.Do(key, func() (interface{}, error) {
+		if g.peers != nil {
+			// not self node
+			if peerGetter, ok := g.peers.PickPeer(key); ok {
+				if value, err = g.getFromPeer(key, peerGetter); err == nil {
+					return value, nil
+				}
+				log.Println("[GeeCache] Failed to get from peer", err)
 			}
-			log.Println("[GeeCache] Failed to get from peer", err)
 		}
+		// self node / fail
+		return g.getLocally(key)
+	})
+	if err == nil{
+		return viewi.(ByteView), nil
 	}
-	// self node / fail
-	return g.getLocally(key)
+	return
 }
 
 // get cache value from remote peer by httpGetter(implement PeerGetter)
